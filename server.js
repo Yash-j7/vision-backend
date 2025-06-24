@@ -12,7 +12,10 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: 'https://vision-frontend-m4a4.onrender.com',
+  credentials: true // If you're using cookies or authentication
+}));
 app.use(express.json());
 
 app.use("/api/v1/auth", authRoutes);
