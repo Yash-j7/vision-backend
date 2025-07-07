@@ -3,6 +3,12 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import "dotenv/config";
 import Payment from "../models/payment.js";
+import path from "path";
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { PaymentHandler, validateHMAC_SHA256 } from "../PaymentHandler.js";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const router = express.Router();
 
@@ -70,6 +76,13 @@ router.post("/verify", async (req, res) => {
       // Save Payment
       await payment.save();
 
+      // Send Message to Frontend
+      res.json({
+        message: "Payement Successfully",
+      });
+
+
+
       // Send Message
       res.json({
         message: "Payement Successfully",
@@ -78,6 +91,95 @@ router.post("/verify", async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error!" });
     console.log(error);
+  }
+});
+
+// HDFC Payment Gateway Integration
+// POST /api/v1/payment/hdfc/initiate
+router.post("/hdfc/initiate", async (req, res) => {
+  try {
+    let { amount, customer, orderId, redirectUrl } = req.body;
+    // Generate unique order_id <= 21 chars
+    if (!orderId) {
+      const ts = Date.now().toString(36);
+      const rand = Math.random().toString(36).substring(2, 6);
+      orderId = ("ORD" + ts + rand).substring(0, 21);
+    } else if (orderId.length > 21) {
+      orderId = orderId.substring(0, 21);
+    }
+    // Generate unique customer_id
+    let customer_id = customer?.customer_id || customer?.customer_email || ("guest_" + Math.random().toString(36).substring(2, 10));
+    // Prepare customer details
+    const customer_details = {
+      customer_id,
+      customer_email: customer?.customer_email,
+      customer_phone: customer?.customer_phone || "",
+      customer_name: customer?.customer_name,
+    };
+    // Validate required fields
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Invalid or missing amount (must be > 0, in INR)" });
+    }
+    if (!customer_details.customer_id || !customer_details.customer_email || !customer_details.customer_name) {
+      return res.status(400).json({ message: "Missing customer details (id, email, name required)" });
+    }
+    if (!redirectUrl) {
+      return res.status(400).json({ message: "Missing redirectUrl" });
+    }
+    // Prepare params as per HDFC kit requirements (use HDFC sample field names)
+    const params = {
+      order_id: orderId,
+      amount: amount, // Use the amount from the cart/frontend (in INR)
+      customer_details: {
+        ...customer_details,
+        customer_phone: "7001449884", // 10 digits, no leading zero (for HDFC validation)
+      },
+      return_url: redirectUrl, // HDFC expects 'return_url' not 'redirect_url'
+      currency: "INR",
+    };
+    console.log("HDFC INITIATE PARAMS:", params);
+    // Initialize PaymentHandler
+    const paymentHandler = PaymentHandler.getInstance(path.resolve(__dirname, '../hdfc-config.json'));
+    // Create order session
+    const session = await paymentHandler.orderSession(params);
+    console.log("HDFC SESSION RESPONSE:", session);
+    // Respond with payment page URL or form
+    res.json({ payment_url: session.payment_url, session });
+  } catch (error) {
+    console.error("HDFC INITIATE ERROR:", error);
+    if (error && typeof error === 'object') {
+      try { console.error('Full HDFC error object:', JSON.stringify(error, null, 2)); } catch (e) { console.error(error); }
+    }
+    res.status(500).json({ message: "Failed to initiate HDFC payment", error: error.message });
+  }
+});
+
+// POST /api/v1/payment/hdfc/callback
+router.post("/hdfc/callback", async (req, res) => {
+  // Debug logs for callback POST
+  console.log('--- HDFC CALLBACK DEBUG ---');
+  console.log('HDFC Callback Headers:', req.headers);
+  console.log('HDFC Callback Body:', req.body);
+  if (req.rawBody) {
+    console.log('HDFC Callback Raw Body:', req.rawBody);
+  } else {
+    console.log('HDFC Callback Raw Body: <not present>');
+  }
+  try {
+    const { order_id } = req.body;
+    const paymentHandler = PaymentHandler.getInstance(path.resolve(__dirname, '../hdfc-config.json'));
+    // Verify signature
+    if (!validateHMAC_SHA256(req.body, paymentHandler.getResponseKey())) {
+      return res.status(400).send("Signature verification failed");
+    }
+    // Check order status
+    const orderStatusResp = await paymentHandler.orderStatus(order_id);
+    // TODO: Update your order/payment in DB here if needed
+    // Redirect to frontend callback page with order_id as query param
+    return res.redirect(`http://localhost:5173/payment/callback?order_id=${order_id}`);
+  } catch (error) {
+    console.error("HDFC CALLBACK ERROR:", error);
+    res.status(500).json({ message: "Failed to handle HDFC callback", error: error.message });
   }
 });
 

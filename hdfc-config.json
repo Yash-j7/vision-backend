@@ -1,0 +1,9 @@
+{
+    "API_KEY": "4C9F4E52E704808AA99E1FC67BF436",
+    "MERCHANT_ID": "SG3035",
+    "PAYMENT_PAGE_CLIENT_ID": "hdfcmaster",
+    "BASE_URL": "https://smartgatewayuat.hdfcbank.com",
+    "ENABLE_LOGGING": true,
+    "LOGGING_PATH": "./logs/PaymentHandler.log",
+    "RESPONSE_KEY": "515F51C962E4A31A5F8779836F3FEF"
+}
