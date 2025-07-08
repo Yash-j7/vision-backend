@@ -134,8 +134,8 @@ router.post("/hdfc/initiate", async (req, res) => {
         ...customer_details,
         customer_phone: "7001449884", // 10 digits, no leading zero (for HDFC validation)
       },
-      // Force return_url to backend endpoint
-      return_url: "http://localhost:8080/api/v1/payment/hdfc/callback",
+      // Force return_url to production backend endpoint for Render
+      return_url: "https://vision-backend-lx5i.onrender.com/api/v1/payment/hdfc/callback",
       currency: "INR",
     };
     console.log("HDFC INITIATE PARAMS:", params);
