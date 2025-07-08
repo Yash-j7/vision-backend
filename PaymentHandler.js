@@ -398,6 +398,11 @@ class APIException extends Error {
     }
 }
 
+function strictEncode(str) {
+    return encodeURIComponent(str)
+        .replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
 function validateHMAC_SHA256(params, secretKey) {
     if (typeof params !== "object" || typeof secretKey !== "string") {
         throw new TypeError(
@@ -407,31 +412,38 @@ function validateHMAC_SHA256(params, secretKey) {
             typeof secretKey
         );
     }
-
-    var paramsList = [];
-    for (var key in params) {
-        if (key != "signature" && key != "signature_algorithm") {
-            paramsList[key] = params[key];
+    // 1. Exclude 'signature' and 'signature_algorithm'
+    let filtered = {};
+    for (let key in params) {
+        if (key !== 'signature' && key !== 'signature_algorithm') {
+            filtered[key] = params[key];
         }
     }
-
-    paramsList = sortObjectByKeys(paramsList);
-
-    var paramsString = "";
-    for (var key in paramsList) {
-        paramsString = paramsString + key + "=" + paramsList[key] + "&";
+    // 2. Percent-encode each key and value
+    let encodedPairs = [];
+    for (let key in filtered) {
+        encodedPairs.push([strictEncode(key), strictEncode(filtered[key])]);
     }
-
-    let encodedParams = encodeURIComponent(
-        paramsString.substring(0, paramsString.length - 1)
-    );
-    let computedHmac = crypto
-        .createHmac("sha256", secretKey)
-        .update(encodedParams)
-        .digest("base64");
+    // 3. Sort by encoded key (ASCII order)
+    encodedPairs.sort((a, b) => a[0].localeCompare(b[0]));
+    // 4. Build the string: key=value&key2=value2...
+    let paramString = encodedPairs.map(pair => pair[0] + '=' + pair[1]).join('&');
+    // 5. Percent-encode the whole string
+    let encodedParamString = strictEncode(paramString);
+    // 6. Compute HMAC-SHA256, base64
+    let computedHmac = crypto.createHmac('sha256', secretKey).update(encodedParamString).digest('base64');
+    // 7. Percent-encode the computed HMAC
+    let encodedHmac = strictEncode(computedHmac);
+    // 8. Compare with the received signature (percent-decoded once)
     let receivedHmac = decodeURIComponent(params.signature);
-
-    return decodeURIComponent(computedHmac) == receivedHmac;
+    // Debug logs for troubleshooting
+    console.log('--- HMAC DEBUG ---');
+    console.log('paramString:', paramString);
+    console.log('encodedParamString:', encodedParamString);
+    console.log('computedHmac:', computedHmac);
+    console.log('encodedHmac:', encodedHmac);
+    console.log('receivedHmac:', receivedHmac);
+    return computedHmac === receivedHmac;
 }
 
 function sortObjectByKeys(o) {

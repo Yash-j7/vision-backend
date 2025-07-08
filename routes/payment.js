@@ -134,7 +134,8 @@ router.post("/hdfc/initiate", async (req, res) => {
         ...customer_details,
         customer_phone: "7001449884", // 10 digits, no leading zero (for HDFC validation)
       },
-      return_url: redirectUrl, // HDFC expects 'return_url' not 'redirect_url'
+      // Force return_url to backend endpoint
+      return_url: "http://localhost:8080/api/v1/payment/hdfc/callback",
       currency: "INR",
     };
     console.log("HDFC INITIATE PARAMS:", params);
@@ -176,10 +177,27 @@ router.post("/hdfc/callback", async (req, res) => {
     const orderStatusResp = await paymentHandler.orderStatus(order_id);
     // TODO: Update your order/payment in DB here if needed
     // Redirect to frontend callback page with order_id as query param
-    return res.redirect(`http://localhost:5173/payment/callback?order_id=${order_id}`);
+    return res.redirect(`https://vision-frontend-m4a4.onrender.com/payment/callback?order_id=${order_id}`);
   } catch (error) {
     console.error("HDFC CALLBACK ERROR:", error);
     res.status(500).json({ message: "Failed to handle HDFC callback", error: error.message });
+  }
+});
+
+// GET /api/v1/payment/status?order_id=...
+router.get('/status', async (req, res) => {
+  const { order_id } = req.query;
+  if (!order_id) {
+    return res.status(400).json({ message: 'Missing order_id' });
+  }
+  try {
+    const paymentHandler = PaymentHandler.getInstance(path.resolve(__dirname, '../hdfc-config.json'));
+    const orderStatus = await paymentHandler.orderStatus(order_id);
+    console.log('HDFC orderStatus:', orderStatus); // Debug log
+    res.json({ status: 'success', order: orderStatus });
+  } catch (error) {
+    console.error('Order status error:', error); // Debug log
+    res.status(500).json({ status: 'failed', message: error.message });
   }
 });
 
