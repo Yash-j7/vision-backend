@@ -3,6 +3,8 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import "dotenv/config";
 import Payment from "../models/payment.js";
+import PaymentLog from "../models/PaymentLog.js";
+import OrderMeta from "../models/OrderMeta.js";
 import path from "path";
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -76,14 +78,22 @@ router.post("/verify", async (req, res) => {
       // Save Payment
       await payment.save();
 
-      // Send Message to Frontend
-      res.json({
-        message: "Payement Successfully",
+      // Log payment details in PaymentLog
+      const order_id = razorpay_order_id; // Using Razorpay order ID as order_id
+      const transaction_status = "SUCCESS";
+      const amount = req.body.amount || 0;
+      // Count previous transactions for this order
+      const transaction_count = await PaymentLog.countDocuments({ order_id }) + 1;
+      const products = req.body.products || [];
+      await PaymentLog.create({
+        order_id,
+        transaction_status,
+        amount,
+        transaction_count,
+        products,
       });
 
-
-
-      // Send Message
+      // Send Message to Frontend
       res.json({
         message: "Payement Successfully",
       });
@@ -97,6 +107,7 @@ router.post("/verify", async (req, res) => {
 // HDFC Payment Gateway Integration
 // POST /api/v1/payment/hdfc/initiate
 router.post("/hdfc/initiate", async (req, res) => {
+  console.log("Received products:", req.body.products);
   try {
     let { amount, customer, orderId, redirectUrl } = req.body;
     // Generate unique order_id <= 21 chars
@@ -106,6 +117,19 @@ router.post("/hdfc/initiate", async (req, res) => {
       orderId = ("ORD" + ts + rand).substring(0, 21);
     } else if (orderId.length > 21) {
       orderId = orderId.substring(0, 21);
+    }
+    // Save products to OrderMeta for this order_id (must be before any return/response)
+    const { products = [] } = req.body;
+    console.log("Saving OrderMeta for order_id:", orderId, "with products:", products);
+    try {
+      const metaDoc = await OrderMeta.findOneAndUpdate(
+        { order_id: orderId.trim() },
+        { products },
+        { upsert: true, new: true }
+      );
+      console.log("OrderMeta saved:", metaDoc);
+    } catch (metaErr) {
+      console.error("Failed to save OrderMeta:", metaErr);
     }
     // Generate unique customer_id
     let customer_id = customer?.customer_id || customer?.customer_email || ("guest_" + Math.random().toString(36).substring(2, 10));
@@ -135,7 +159,7 @@ router.post("/hdfc/initiate", async (req, res) => {
         customer_phone: "7001449884", // 10 digits, no leading zero (for HDFC validation)
       },
       // Force return_url to production backend endpoint for Render
-      return_url: "https://vision-backend-lx5i.onrender.com/api/v1/payment/hdfc/callback",
+      return_url: "http://localhost:8080/api/v1/payment/hdfc/callback",
       currency: "INR",
     };
     console.log("HDFC INITIATE PARAMS:", params);
@@ -175,7 +199,30 @@ router.post("/hdfc/callback", async (req, res) => {
     }
     // Check order status
     const orderStatusResp = await paymentHandler.orderStatus(order_id);
-    // TODO: Update your order/payment in DB here if needed
+    // Ensure order_id is trimmed
+    const trimmedOrderId = (order_id || '').trim();
+    console.log("HDFC CALLBACK: Looking for OrderMeta with order_id:", trimmedOrderId);
+    let products = [];
+    try {
+      const meta = await OrderMeta.findOne({ order_id: trimmedOrderId });
+      console.log("HDFC CALLBACK: Found OrderMeta:", meta);
+      if (meta && Array.isArray(meta.products)) {
+        products = meta.products;
+      }
+    } catch (metaErr) {
+      console.error("Failed to fetch OrderMeta in callback:", metaErr);
+    }
+    // Log payment details in PaymentLog
+    const transaction_status = orderStatusResp.status || "UNKNOWN";
+    const amount = orderStatusResp.amount || 0;
+    const transaction_count = await PaymentLog.countDocuments({ order_id }) + 1;
+    await PaymentLog.create({
+      order_id,
+      transaction_status,
+      amount,
+      transaction_count,
+      products,
+    });
     // Redirect to frontend callback page with order_id as query param
     return res.redirect(`https://vision-frontend-m4a4.onrender.com/payment/callback?order_id=${order_id}`);
   } catch (error) {
