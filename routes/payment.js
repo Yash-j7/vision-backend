@@ -109,7 +109,8 @@ router.post("/verify", async (req, res) => {
 router.post("/hdfc/initiate", async (req, res) => {
   console.log("Received products:", req.body.products);
   try {
-    let { amount, customer, orderId, redirectUrl } = req.body;
+    let { customer, orderId, redirectUrl } = req.body;
+    // Ignore amount from req.body for security
 
     // Generate unique order_id <= 21 chars
     if (!orderId) {
@@ -122,10 +123,7 @@ router.post("/hdfc/initiate", async (req, res) => {
 
     const trimmedOrderId = orderId.trim();
 
-    // Validate required fields
-    if (!amount || isNaN(amount) || amount <= 0) {
-      return res.status(400).json({ message: "Invalid or missing amount (must be > 0, in INR)" });
-    }
+    // Validate required fields (skip amount check)
     if (!customer?.customer_id || !customer?.customer_email || !customer?.customer_name) {
       return res.status(400).json({ message: "Missing customer details (id, email, name required)" });
     }
@@ -137,11 +135,18 @@ router.post("/hdfc/initiate", async (req, res) => {
     const { products = [] } = req.body;
     console.log("Saving OrderMeta for order_id:", trimmedOrderId, "with products:", products);
 
+    // Calculate expected_amount from products
+    const expected_amount = products.reduce(
+      (total, product) => total + (product.price * product.quantity), 0
+    );
+
+    let metaDoc;
     try {
-      const metaDoc = await OrderMeta.findOneAndUpdate(
+      metaDoc = await OrderMeta.findOneAndUpdate(
         { order_id: trimmedOrderId },
         {
           products,
+          expected_amount, // <-- set it here!
           customer_details: {
             customer_id: customer.customer_id,
             customer_email: customer.customer_email,
@@ -151,12 +156,30 @@ router.post("/hdfc/initiate", async (req, res) => {
           payment_status: 'PENDING',
           payment_gateway: 'HDFC'
         },
-        { upsert: true, new: true }
+        { upsert: true, new: true, setDefaultsOnInsert: true }
       );
       console.log("OrderMeta saved:", metaDoc);
     } catch (metaErr) {
       console.error("Failed to save OrderMeta:", metaErr);
       return res.status(500).json({ message: "Failed to save order details" });
+    }
+
+    // Fetch the latest OrderMeta to get expected_amount
+    let orderMeta;
+    try {
+      orderMeta = await OrderMeta.findOne({ order_id: trimmedOrderId });
+      if (!orderMeta) {
+        return res.status(404).json({ message: "OrderMeta not found after save" });
+      }
+    } catch (fetchErr) {
+      console.error("Failed to fetch OrderMeta after save:", fetchErr);
+      return res.status(500).json({ message: "Failed to fetch order details after save" });
+    }
+
+    // Use backend-calculated amount
+    const amount = orderMeta.expected_amount;
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Invalid or missing calculated amount (must be > 0, in INR)" });
     }
 
     // Generate unique customer_id
@@ -173,7 +196,7 @@ router.post("/hdfc/initiate", async (req, res) => {
     // Prepare params as per HDFC kit requirements (use HDFC sample field names)
     const params = {
       order_id: trimmedOrderId,
-      amount: amount, // Use the amount from the cart/frontend (in INR)
+      amount: amount, // Use backend-calculated amount
       customer_details: {
         ...customer_details,
         customer_phone: "7001449884", // 10 digits, no leading zero (for HDFC validation)
@@ -182,7 +205,7 @@ router.post("/hdfc/initiate", async (req, res) => {
       return_url: "https://vision-backend-lx5i.onrender.com/api/v1/payment/hdfc/callback",
       currency: "INR",
     };
-    console.log("HDFC INITIATE PARAMS:", params);
+    console.log("HDFC INITIATE PARAMS (SECURE):", params);
 
     // Initialize PaymentHandler
     const paymentHandler = PaymentHandler.getInstance(path.resolve(__dirname, '../hdfc-config.json'));
