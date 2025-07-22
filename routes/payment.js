@@ -9,6 +9,7 @@ import path from "path";
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { PaymentHandler, validateHMAC_SHA256 } from "../PaymentHandler.js";
+import Products from "../models/productModel.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -131,12 +132,34 @@ router.post("/hdfc/initiate", async (req, res) => {
       return res.status(400).json({ message: "Missing redirectUrl" });
     }
 
-    // Save products and customer details to OrderMeta for this order_id
+    // Only trust product_id and quantity from frontend
     const { products = [] } = req.body;
-    console.log("Saving OrderMeta for order_id:", trimmedOrderId, "with products:", products);
+    console.log("Received products for order:", products);
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ message: "No products provided" });
+    }
 
-    // Calculate expected_amount from products
-    const expected_amount = products.reduce(
+    // Fetch product details from DB for each product_id
+    const productIds = products.map(p => p.product_id);
+    const dbProducts = await Products.find({ _id: { $in: productIds } });
+    if (dbProducts.length !== products.length) {
+      return res.status(400).json({ message: "One or more products not found in database" });
+    }
+
+    // Build safe products array using DB data
+    const safeProducts = products.map(item => {
+      const dbProduct = dbProducts.find(p => p._id.toString() === item.product_id);
+      if (!dbProduct) throw new Error('Invalid product');
+      return {
+        product_id: dbProduct._id.toString(),
+        name: dbProduct.name,
+        price: dbProduct.price, // Use price from DB!
+        quantity: item.quantity
+      };
+    });
+
+    // Calculate expected_amount from safeProducts
+    const expected_amount = safeProducts.reduce(
       (total, product) => total + (product.price * product.quantity), 0
     );
 
@@ -145,7 +168,7 @@ router.post("/hdfc/initiate", async (req, res) => {
       metaDoc = await OrderMeta.findOneAndUpdate(
         { order_id: trimmedOrderId },
         {
-          products,
+          products: safeProducts,
           expected_amount, // <-- set it here!
           customer_details: {
             customer_id: customer.customer_id,
