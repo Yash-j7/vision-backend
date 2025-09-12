@@ -13,7 +13,7 @@ dotenv.config();
 const app = express();
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://vision-frontend-m4a4.onrender.com'],
+  origin: ['http://localhost:5173', 'https://vision-frontend-m4a4.onrender.com','https://www.visiongifting.com'],
   credentials: true // If you're using cookies or authentication
 }));
 // Only use express.urlencoded for parsing POST bodies
