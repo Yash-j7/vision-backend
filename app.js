@@ -15,7 +15,7 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://www.visiongifting.com/" // replace with your deployed frontend domain
+    "https://www.visiongifting.com" // Fixed: removed trailing slash
   ],
   credentials: true,
 }));
