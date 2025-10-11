@@ -9,25 +9,60 @@ dotenv.config();
 
 // Utility function to normalize photo data
 const normalizePhotoData = (photo) => {
+  console.log('normalizePhotoData input:', photo, 'type:', typeof photo);
+
   if (!photo) return [];
 
   if (Array.isArray(photo)) {
-    return photo.filter(url => url && typeof url === 'string');
+    const result = photo.filter(url => url && typeof url === 'string' && url.trim());
+    console.log('normalizePhotoData array result:', result);
+    return result;
   }
 
   if (typeof photo === 'string') {
-    if (photo.includes(',')) {
-      return photo.split(',').map(url => url.trim()).filter(url => url);
+    // Handle JSON string arrays like '["url1", "url2"]'
+    if (photo.startsWith('[') && photo.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(photo);
+        if (Array.isArray(parsed)) {
+          const result = parsed.filter(url => url && typeof url === 'string' && url.trim());
+          console.log('normalizePhotoData JSON array result:', result);
+          return result;
+        }
+      } catch (e) {
+        console.log('Failed to parse JSON array:', e);
+      }
     }
-    return [photo];
+
+    // Handle comma-separated URLs
+    if (photo.includes(',')) {
+      const result = photo.split(',')
+        .map(url => url.trim())
+        .filter(url => url);
+      console.log('normalizePhotoData comma-separated result:', result);
+      return result;
+    }
+
+    // Single URL
+    const result = [photo];
+    console.log('normalizePhotoData single string result:', result);
+    return result;
   }
 
+  console.log('normalizePhotoData fallback result: []');
   return [];
 };
 
 export const createProductController = async (req, res) => {
   try {
+    console.log('=== CREATE PRODUCT DEBUG ===');
+    console.log('req.fields:', req.fields);
+    console.log('req.files:', req.files);
+
     const { name, description, price, category, quantity, bulkDiscounts, photo } = req.fields;
+
+    console.log('Extracted photo field:', photo, 'type:', typeof photo);
+
     switch (true) {
       case !name:
         return res.status(500).send({ error: "Name is Required" });
@@ -53,17 +88,24 @@ export const createProductController = async (req, res) => {
     }
 
     // Handle photo - normalize to array of Cloudinary URLs
-    productFields.photo = normalizePhotoData(photo);
+    const normalizedPhoto = normalizePhotoData(photo);
+    console.log('Normalized photo:', normalizedPhoto);
+    productFields.photo = normalizedPhoto;
+
+    console.log('Final productFields:', productFields);
 
     const products = new productModel(productFields);
     await products.save();
+
+    console.log('Saved product:', products);
+
     res.status(201).send({
       success: true,
       message: "Product Created Successfully",
       products,
     });
   } catch (error) {
-    console.log(error);
+    console.log('Create product error:', error);
     res.status(500).send({
       success: false,
       error,
@@ -178,7 +220,14 @@ export const deleteProductController = async (req, res) => {
 
 export const updateProductController = async (req, res) => {
   try {
+    console.log('=== UPDATE PRODUCT DEBUG ===');
+    console.log('req.fields:', req.fields);
+    console.log('req.files:', req.files);
+
     const { name, description, price, photo, category, quantity, bulkDiscounts } = req.fields;
+
+    console.log('Extracted photo field:', photo, 'type:', typeof photo);
+
     //Validation
     switch (true) {
       case !name:
@@ -205,7 +254,11 @@ export const updateProductController = async (req, res) => {
     }
 
     // Handle photo updates - normalize to array of Cloudinary URLs
-    updateFields.photo = normalizePhotoData(photo);
+    const normalizedPhoto = normalizePhotoData(photo);
+    console.log('Normalized photo:', normalizedPhoto);
+    updateFields.photo = normalizedPhoto;
+
+    console.log('Final updateFields:', updateFields);
 
     const products = await productModel.findByIdAndUpdate(
       req.params.pid,
@@ -213,13 +266,15 @@ export const updateProductController = async (req, res) => {
       { new: true }
     );
 
+    console.log('Updated product:', products);
+
     res.status(201).send({
       success: true,
       message: "Product Updated Successfully",
       products,
     });
   } catch (error) {
-    console.log(error);
+    console.log('Update product error:', error);
     res.status(500).send({
       success: false,
       error,
