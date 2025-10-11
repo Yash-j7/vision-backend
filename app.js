@@ -12,7 +12,13 @@ dotenv.config();
 connectDb();
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://your-frontend-domain.com" // replace with your deployed frontend domain
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -30,3 +36,5 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`server running on ${port}`);
 });
+
+
