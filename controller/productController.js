@@ -7,62 +7,10 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Utility function to normalize photo data
-const normalizePhotoData = (photo) => {
-  console.log('normalizePhotoData input:', photo, 'type:', typeof photo);
-
-  if (!photo) return [];
-
-  if (Array.isArray(photo)) {
-    const result = photo.filter(url => url && typeof url === 'string' && url.trim());
-    console.log('normalizePhotoData array result:', result);
-    return result;
-  }
-
-  if (typeof photo === 'string') {
-    // Handle JSON string arrays like '["url1", "url2"]'
-    if (photo.startsWith('[') && photo.endsWith(']')) {
-      try {
-        const parsed = JSON.parse(photo);
-        if (Array.isArray(parsed)) {
-          const result = parsed.filter(url => url && typeof url === 'string' && url.trim());
-          console.log('normalizePhotoData JSON array result:', result);
-          return result;
-        }
-      } catch (e) {
-        console.log('Failed to parse JSON array:', e);
-      }
-    }
-
-    // Handle comma-separated URLs
-    if (photo.includes(',')) {
-      const result = photo.split(',')
-        .map(url => url.trim())
-        .filter(url => url);
-      console.log('normalizePhotoData comma-separated result:', result);
-      return result;
-    }
-
-    // Single URL
-    const result = [photo];
-    console.log('normalizePhotoData single string result:', result);
-    return result;
-  }
-
-  console.log('normalizePhotoData fallback result: []');
-  return [];
-};
-
 export const createProductController = async (req, res) => {
   try {
-    console.log('=== CREATE PRODUCT DEBUG ===');
-    console.log('req.fields:', req.fields);
-    console.log('req.files:', req.files);
-
-    const { name, description, price, category, quantity, bulkDiscounts, photo } = req.fields;
-
-    console.log('Extracted photo field:', photo, 'type:', typeof photo);
-
+    const { name, description, price, category, quantity, bulkDiscounts } = req.fields;
+    const { photo } = req.files;
     switch (true) {
       case !name:
         return res.status(500).send({ error: "Name is Required" });
@@ -74,11 +22,13 @@ export const createProductController = async (req, res) => {
         return res.status(500).send({ error: "Category is Required" });
       case !quantity:
         return res.status(500).send({ error: "Quantity is Required" });
+      case photo && photo.size > 1000000:
+        return res
+          .status(500)
+          .send({ error: "photo is Required and should be less then 1mb" });
     }
 
     const productFields = { ...req.fields, slug: slugify(name) };
-
-    // Handle bulk discounts
     if (bulkDiscounts) {
       try {
         productFields.bulkDiscounts = JSON.parse(bulkDiscounts);
@@ -86,30 +36,23 @@ export const createProductController = async (req, res) => {
         productFields.bulkDiscounts = [];
       }
     }
-
-    // Handle photo - normalize to array of Cloudinary URLs
-    const normalizedPhoto = normalizePhotoData(photo);
-    console.log('Normalized photo:', normalizedPhoto);
-    productFields.photo = normalizedPhoto;
-
-    console.log('Final productFields:', productFields);
-
     const products = new productModel(productFields);
+    if (photo) {
+      products.photo.data = fs.readFileSync(photo.path);
+      products.photo.contentType = photo.type;
+    }
     await products.save();
-
-    console.log('Saved product:', products);
-
     res.status(201).send({
       success: true,
       message: "Product Created Successfully",
       products,
     });
   } catch (error) {
-    console.log('Create product error:', error);
+    console.log(error);
     res.status(500).send({
       success: false,
       error,
-      message: "Error in creating product",
+      message: "Error in crearing product",
     });
   }
 };
@@ -121,24 +64,11 @@ export const getProductController = async (req, res) => {
       .populate("category")
       .limit(12)
       .sort({ createdAt: -1 });
-
-    // Normalize photo data for all products
-    const normalizedProducts = products.map(product => ({
-      ...product.toObject(),
-      photo: normalizePhotoData(product.photo)
-    }));
-
-    // Debug: Log photo data structure
-    normalizedProducts.forEach((product, index) => {
-      console.log(`Product ${index + 1} (${product.name}) photo type:`, typeof product.photo);
-      console.log(`Product ${index + 1} photo value:`, product.photo);
-    });
-
     res.status(200).send({
       success: true,
-      counTotal: normalizedProducts.length,
+      counTotal: products.length,
       message: "ALL Products ",
-      products: normalizedProducts,
+      products,
     });
   } catch (error) {
     console.log(error);
@@ -155,23 +85,10 @@ export const getSingleProductController = async (req, res) => {
     const product = await productModel
       .findOne({ slug: req.params.slug })
       .populate("category");
-
-    // Normalize photo data
-    const normalizedProduct = product ? {
-      ...product.toObject(),
-      photo: normalizePhotoData(product.photo)
-    } : null;
-
-    // Debug: Log photo data structure
-    if (normalizedProduct) {
-      console.log(`Single Product (${normalizedProduct.name}) photo type:`, typeof normalizedProduct.photo);
-      console.log(`Single Product photo value:`, normalizedProduct.photo);
-    }
-
     res.status(200).send({
       success: true,
       message: "Single Product Fetched",
-      product: normalizedProduct,
+      product,
     });
   } catch (error) {
     console.log(error);
@@ -220,14 +137,7 @@ export const deleteProductController = async (req, res) => {
 
 export const updateProductController = async (req, res) => {
   try {
-    console.log('=== UPDATE PRODUCT DEBUG ===');
-    console.log('req.fields:', req.fields);
-    console.log('req.files:', req.files);
-
     const { name, description, price, photo, category, quantity, bulkDiscounts } = req.fields;
-
-    console.log('Extracted photo field:', photo, 'type:', typeof photo);
-
     //Validation
     switch (true) {
       case !name:
@@ -240,11 +150,13 @@ export const updateProductController = async (req, res) => {
         return res.status(500).send({ error: "Category is Required" });
       case !quantity:
         return res.status(500).send({ error: "Quantity is Required" });
+      // case !PushSubscriptionOptions:
+      //   return res
+      //     .status(500)
+      //     .send({ error: "PushSubscriptionOptions is Required" });
     }
 
     const updateFields = { ...req.fields, slug: slugify(name) };
-
-    // Handle bulk discounts
     if (bulkDiscounts) {
       try {
         updateFields.bulkDiscounts = JSON.parse(bulkDiscounts);
@@ -252,29 +164,20 @@ export const updateProductController = async (req, res) => {
         updateFields.bulkDiscounts = [];
       }
     }
-
-    // Handle photo updates - normalize to array of Cloudinary URLs
-    const normalizedPhoto = normalizePhotoData(photo);
-    console.log('Normalized photo:', normalizedPhoto);
-    updateFields.photo = normalizedPhoto;
-
-    console.log('Final updateFields:', updateFields);
-
     const products = await productModel.findByIdAndUpdate(
       req.params.pid,
       updateFields,
       { new: true }
     );
 
-    console.log('Updated product:', products);
-
+    await products.save();
     res.status(201).send({
       success: true,
       message: "Product Updated Successfully",
       products,
     });
   } catch (error) {
-    console.log('Update product error:', error);
+    console.log(error);
     res.status(500).send({
       success: false,
       error,
