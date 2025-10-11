@@ -7,6 +7,24 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// Utility function to normalize photo data
+const normalizePhotoData = (photo) => {
+  if (!photo) return [];
+
+  if (Array.isArray(photo)) {
+    return photo.filter(url => url && typeof url === 'string');
+  }
+
+  if (typeof photo === 'string') {
+    if (photo.includes(',')) {
+      return photo.split(',').map(url => url.trim()).filter(url => url);
+    }
+    return [photo];
+  }
+
+  return [];
+};
+
 export const createProductController = async (req, res) => {
   try {
     const { name, description, price, category, quantity, bulkDiscounts, photo } = req.fields;
@@ -34,15 +52,8 @@ export const createProductController = async (req, res) => {
       }
     }
 
-    // Handle photo - should be an array of Cloudinary URLs
-    if (photo) {
-      try {
-        productFields.photo = JSON.parse(photo);
-      } catch (e) {
-        // If it's not JSON, treat it as a single URL
-        productFields.photo = [photo];
-      }
-    }
+    // Handle photo - normalize to array of Cloudinary URLs
+    productFields.photo = normalizePhotoData(photo);
 
     const products = new productModel(productFields);
     await products.save();
@@ -68,11 +79,24 @@ export const getProductController = async (req, res) => {
       .populate("category")
       .limit(12)
       .sort({ createdAt: -1 });
+
+    // Normalize photo data for all products
+    const normalizedProducts = products.map(product => ({
+      ...product.toObject(),
+      photo: normalizePhotoData(product.photo)
+    }));
+
+    // Debug: Log photo data structure
+    normalizedProducts.forEach((product, index) => {
+      console.log(`Product ${index + 1} (${product.name}) photo type:`, typeof product.photo);
+      console.log(`Product ${index + 1} photo value:`, product.photo);
+    });
+
     res.status(200).send({
       success: true,
-      counTotal: products.length,
+      counTotal: normalizedProducts.length,
       message: "ALL Products ",
-      products,
+      products: normalizedProducts,
     });
   } catch (error) {
     console.log(error);
@@ -89,10 +113,23 @@ export const getSingleProductController = async (req, res) => {
     const product = await productModel
       .findOne({ slug: req.params.slug })
       .populate("category");
+
+    // Normalize photo data
+    const normalizedProduct = product ? {
+      ...product.toObject(),
+      photo: normalizePhotoData(product.photo)
+    } : null;
+
+    // Debug: Log photo data structure
+    if (normalizedProduct) {
+      console.log(`Single Product (${normalizedProduct.name}) photo type:`, typeof normalizedProduct.photo);
+      console.log(`Single Product photo value:`, normalizedProduct.photo);
+    }
+
     res.status(200).send({
       success: true,
       message: "Single Product Fetched",
-      product,
+      product: normalizedProduct,
     });
   } catch (error) {
     console.log(error);
@@ -167,15 +204,8 @@ export const updateProductController = async (req, res) => {
       }
     }
 
-    // Handle photo updates - photo should be an array of Cloudinary URLs
-    if (photo) {
-      try {
-        updateFields.photo = JSON.parse(photo);
-      } catch (e) {
-        // If it's not JSON, treat it as a single URL
-        updateFields.photo = [photo];
-      }
-    }
+    // Handle photo updates - normalize to array of Cloudinary URLs
+    updateFields.photo = normalizePhotoData(photo);
 
     const products = await productModel.findByIdAndUpdate(
       req.params.pid,
