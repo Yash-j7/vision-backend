@@ -225,7 +225,7 @@ export const relatedProductController = async (req, res) => {
         category: cid,
         _id: { $ne: pid },
       })
-      .select("-photo")
+    
       .limit(3)
       .populate("category");
 
