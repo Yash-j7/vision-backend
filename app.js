@@ -6,18 +6,22 @@ import categoryRoutes from "./routes/categoryRoutes.js";
 import productRoutes from "./routes/productRoute.js";
 import blogRoutes from "./routes/blogRoutes.js";
 import paymentRoutes from "./routes/payment.js";
-
 import cors from "cors";
+
 dotenv.config();
+
 const app = express();
+
+console.log("✅ Starting server initialization...");
 
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://www.visiongifting.com" // Fixed: removed trailing slash
+    "https://www.visiongifting.com"
   ],
   credentials: true,
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -31,21 +35,22 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-const PORT = process.env.PORT || 8080;   // <- Cloud Run sets this to 8080
-const HOST = "0.0.0.0";                   // <- bind on all interfaces
+const PORT = process.env.PORT || 8080;
+const HOST = "0.0.0.0";
 
-// connect DB, then start server (log failures)
+console.log("⏳ Attempting MongoDB connection...");
+
 connectDb()
   .then(() => {
+    console.log("✅ MongoDB connected successfully");
     app.listen(PORT, HOST, () => {
-      console.log(`Server listening on http://${HOST}:${PORT}`);
+      console.log(`🚀 Server listening on http://${HOST}:${PORT}`);
     });
   })
-  .catch(err => {
-    console.error("DB connection failed:", err);
-    // still start to satisfy health check if you want:
+  .catch((err) => {
+    console.error("⚠️ DB connection failed:", err.message);
+    console.log("➡️ Starting server anyway to satisfy Cloud Run health check...");
     app.listen(PORT, HOST, () => {
-      console.log(`Server listening (DB failed) on http://${HOST}:${PORT}`);
+      console.log(`🚀 Server listening (DB failed) on http://${HOST}:${PORT}`);
     });
   });
-
