@@ -9,7 +9,6 @@ import paymentRoutes from "./routes/payment.js";
 
 import cors from "cors";
 dotenv.config();
-connectDb();
 const app = express();
 
 app.use(cors({
@@ -32,9 +31,21 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`server running on ${port}`);
-});
+const PORT = process.env.PORT || 8080;   // <- Cloud Run sets this to 8080
+const HOST = "0.0.0.0";                   // <- bind on all interfaces
 
+// connect DB, then start server (log failures)
+connectDb()
+  .then(() => {
+    app.listen(PORT, HOST, () => {
+      console.log(`Server listening on http://${HOST}:${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error("DB connection failed:", err);
+    // still start to satisfy health check if you want:
+    app.listen(PORT, HOST, () => {
+      console.log(`Server listening (DB failed) on http://${HOST}:${PORT}`);
+    });
+  });
 
