@@ -1,3 +1,4 @@
+
 import express from "express";
 import dotenv from "dotenv";
 import connectDb from "./config/db.js";
@@ -12,44 +13,40 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors({
-  origin: ['http://localhost:5173', 'https://vision-frontend-m4a4.onrender.com','https://www.visiongifting.com'],
-  credentials: true // If you're using cookies or authentication
-}));
-// Only use express.urlencoded for parsing POST bodies
-app.use(express.urlencoded({ extended: true }));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://www.visiongifting.com",
+    ],
+    credentials: true,
+  })
+);
 
-// Very raw body logger for debugging before any parser
-app.use((req, res, next) => {
-  let data = '';
-  req.on('data', chunk => { data += chunk; });
-  req.on('end', () => {
-    if (data) {
-      console.log('Very Raw body:', data);
-    }
-    next();
-  });
-});
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
-// Minimal test route for browser form POST
-app.post('/test-form', (req, res) => {
-  console.log('Test Form Headers:', req.headers);
-  console.log('Test Form Body:', req.body);
-  res.send('OK');
-});
-
+// Routes
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/category", categoryRoutes);
 app.use("/api/v1/product", productRoutes);
 app.use("/api/v1/blog", blogRoutes);
 app.use("/api/v1/payment", paymentRoutes);
 
-
+// Root route for health check
 app.get("/", (req, res) => {
-  res.send("Hello World!");
+  res.send("✅ Vision Backend is Running");
 });
 
-const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`server running on ${port}`);
-}); 
+const PORT = process.env.PORT || 8080;
+const HOST = "0.0.0.0";
+
+// --- START SERVER IMMEDIATELY ---
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Server is running on http://${HOST}:${PORT}`);
+});
+
+// --- CONNECT DB IN BACKGROUND ---
+connectDb()
+  .then(() => console.log("✅ MongoDB connected successfully"))
+  .catch((err) => console.error("⚠️ MongoDB connection failed:", err.message));
