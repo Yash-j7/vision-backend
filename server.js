@@ -49,7 +49,7 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-const port = process.env.PORT;
+const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`server running on ${port}`);
 }); 
